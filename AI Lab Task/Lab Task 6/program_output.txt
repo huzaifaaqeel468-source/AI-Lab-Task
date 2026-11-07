@@ -1,0 +1,223 @@
+LAB 6 - TOKENIZATION, EMBEDDINGS AND TEXT CHUNKING
+Embedding model not available (ModuleNotFoundError); only the TF-IDF baseline will be run.
+Corpus: 5 documents, words per document {'late': 187, 'password': 198, 'assignment': 180, 'contractor': 193, 'printer': 187}
+Queries: 8 answerable + 2 unanswerable
+
+======================================================================
+1. TOKENIZATION
+======================================================================
+[punctuation] original: 'AI, search!'
+    whitespace (2): ['AI,', 'search!']
+    word-like  (2): ['AI', 'search']
+[contraction] original: "I can't log in."
+    whitespace (4): ['I', "can't", 'log', 'in.']
+    word-like  (5): ['I', 'can', 't', 'log', 'in']
+[email] original: 'help@example.com'
+    whitespace (1): ['help@example.com']
+    word-like  (3): ['help', 'example', 'com']
+[identifier] original: 'CS4944'
+    whitespace (1): ['CS4944']
+    word-like  (1): ['CS4944']
+[empty] original: ''
+    whitespace (0): []
+    word-like  (0): []
+[urdu] original: 'یہ ایک مثال ہے'
+    whitespace (4): ['یہ', 'ایک', 'مثال', 'ہے']
+    word-like  (4): ['یہ', 'ایک', 'مثال', 'ہے']
+[mixed] original: "Mail it@uni.edu.pk about CS4944's v2.1 re-sit"
+    whitespace (6): ['Mail', 'it@uni.edu.pk', 'about', "CS4944's", 'v2.1', 're-sit']
+    word-like  (12): ['Mail', 'it', 'uni', 'edu', 'pk', 'about', 'CS4944', 's', 'v2', '1', 're', 'sit']
+Model sub-word tokens: skipped (sentence-transformers not available)
+
+======================================================================
+2. CHUNKING TESTS
+======================================================================
+empty text            -> windows: [] | sentence: []
+2-word document       -> one window: [(0, 10)]
+size=2, overlap=2     -> ValueError (rejected)
+size=2, overlap=5     -> ValueError (rejected)
+size=2, overlap=-1    -> ValueError (rejected)
+95-word sentence      -> fallback chunk sizes [40, 40, 15]
+offset check          -> text == source[start:end] for all chunks
+
+Sentence splitter failure (abbreviations), budget of 6 words:
+   input: Dr. Rahman approves late work. Ask him on Tuesday, e.g. at noon. Thanks.
+   chunk: 'Dr. Rahman approves late work. '
+   chunk: 'Ask him on Tuesday, e.g. '
+   chunk: 'at noon. Thanks.'
+
+======================================================================
+3. CHUNK COMPARISON (rule + exception survival)
+======================================================================
+Documents: ['late', 'password', 'assignment'] | original words: 565
+
+window 40, overlap 0
+   chunks=15  words min/avg/max=20/37.7/40  duplicate words=0
+   late        rule whole: True  exception whole: False together: False
+   password    rule whole: True  exception whole: False together: False
+   assignment  rule whole: True  exception whole: False together: False
+
+window 40, overlap 10
+   chunks=19  words min/avg/max=18/38.2/40  duplicate words=160
+   late        rule whole: True  exception whole: True  together: True
+   password    rule whole: True  exception whole: False together: False
+   assignment  rule whole: True  exception whole: False together: False
+
+sentence-aware, budget 40
+   chunks=22  words min/avg/max=1/25.7/40  duplicate words=0
+   late        rule whole: True  exception whole: True  together: False
+   password    rule whole: True  exception whole: False together: False
+   assignment  rule whole: True  exception whole: True  together: False
+   very small chunks: ['password:5']
+
+======================================================================
+4. RETRIEVAL EVALUATION
+======================================================================
+strategy                  method    chunks  dup  dev H@3 dev MRR test H@3 test MRR  index s  query s
+window 40, overlap 0      tfidf         25    0    0.750   0.750    0.500    0.500   0.0130  0.00097
+window 40, overlap 10     tfidf         32  270    1.000   1.000    1.000    0.583   0.0023  0.00074
+sentence-aware, budget 40 tfidf         36    0    1.000   0.875    0.750    0.625   0.0022  0.00071
+
+Strategy chosen on DEV results only (best MRR@3, then Hit@3, then fewer duplicate words):
+   tfidf     -> window 40, overlap 10 | held-out test: Hit@3=1.000, MRR@3=0.583 (not used for tuning)
+
+Rejection threshold from the dev unanswerable query (top-1 score must be above it):
+   window 40, overlap 0      tfidf     threshold=0.151  test answerable kept 3/4, test unanswerable rejected 0/1
+   window 40, overlap 10     tfidf     threshold=0.132  test answerable kept 4/4, test unanswerable rejected 0/1
+   sentence-aware, budget 40 tfidf     threshold=0.212  test answerable kept 3/4, test unanswerable rejected 0/1
+
+Top-3 log for every configuration written to retrieval_log.csv
+
+======================================================================
+5. TOP-3 SOURCE-TRACEABLE RESULTS
+======================================================================
+
+Top-3 results: window 40, overlap 10 + tfidf
+  [dev] What is required for illness extensions?
+     1. late:1         score=0.392 chars 184-426 | semester. Late submission is normally penalized. Illness extensions requ...
+     2. late:0         score=0.295 chars 0-267 | Assessment Handbook, Section 4 (synthetic teaching text). Every assignme...
+     3. assignment:5   score=0.146 chars 941-1137 | the portal is down for the whole university and the coordinator announce...
+  [dev] How do I reset a forgotten password?
+     1. password:1     score=0.373 chars 189-401 | with one of them usually means a problem with the account itself. Reset ...
+     2. contractor:2   score=0.085 chars 363-595 | a time. Contractors can work remotely only if the signed contract permit...
+     3. printer:3      score=0.083 chars 542-764 | to see it if the problem returns. If the pages are still blank after two...
+  [dev] Where do I upload assignments?
+     1. assignment:0   score=0.230 chars 0-297 | Submission Guide for Coursework (synthetic teaching text). Most courses ...
+     2. password:5     score=0.103 chars 860-1113 | that are locked after five wrong attempts open again by themselves after...
+     3. contractor:2   score=0.086 chars 363-595 | a time. Contractors can work remotely only if the signed contract permit...
+  [dev] Can contractors work remotely?
+     1. contractor:2   score=0.388 chars 363-595 | a time. Contractors can work remotely only if the signed contract permit...
+     2. contractor:1   score=0.349 chars 193-419 | to face teaching. Employees may request remote work with manager approva...
+     3. contractor:0   score=0.230 chars 0-257 | Remote Work Policy: Employees and Contractors (synthetic teaching text)....
+  [dev] What are tomorrow's flight prices?   <unanswerable>
+     1. printer:5      score=0.132 chars 870-1079 | a different problem and usually means the document was placed face up on...
+     2. assignment:4   score=0.132 chars 764-992 | a short readme, while hand written work must be scanned clearly and comb...
+     3. assignment:2   score=0.131 chars 416-653 | the deadline passes. Submit the final file as a PDF, because Word docume...
+  [test] What do I do for blank printer pages?
+     1. printer:1      score=0.300 chars 198-428 | design lab, which have their own sheets. Before opening any panel, switc...
+     2. printer:2      score=0.278 chars 367-588 | for several minutes after use. For blank printer pages, check ink levels...
+     3. printer:3      score=0.235 chars 542-764 | to see it if the problem returns. If the pages are still blank after two...
+  [test] How can I recover my login access?
+     1. password:0     score=0.139 chars 0-238 | IT Help Desk Guide: Accounts and Passwords (synthetic teaching text). Th...
+     2. password:1     score=0.123 chars 189-401 | with one of them usually means a problem with the account itself. Reset ...
+     3. contractor:2   score=0.111 chars 363-595 | a time. Contractors can work remotely only if the signed contract permit...
+  [test] How should I hand in my coursework?
+     1. assignment:0   score=0.259 chars 0-297 | Submission Guide for Coursework (synthetic teaching text). Most courses ...
+     2. assignment:3   score=0.179 chars 597-819 | the portal should take a screenshot of the error message and send it to ...
+     3. assignment:4   score=0.137 chars 764-992 | a short readme, while hand written work must be scanned clearly and comb...
+  [test] What proof is needed when I was ill?
+     1. contractor:6   score=0.279 chars 1075-1162 | employee rules, but those notices were replaced when the contractor poli...
+     2. late:2         score=0.234 chars 380-601 | that is more than five days late is not marked at all unless the coordin...
+     3. late:1         score=0.207 chars 184-426 | semester. Late submission is normally penalized. Illness extensions requ...
+  [test] Who won the football match?   <unanswerable>
+     1. contractor:5   score=0.233 chars 897-1142 | as laptops remains the property of the university, and a contractor who ...
+     2. assignment:2   score=0.230 chars 416-653 | the deadline passes. Submit the final file as a PDF, because Word docume...
+     3. password:2     score=0.192 chars 356-590 | box and it sends a one-time code to the phone number registered at admis...
+
+======================================================================
+6. FAILURE AND EDGE CASES
+======================================================================
+- window 40, overlap 0 | What is required for illness extensions? (dev)
+    not in top 3; top-1 = late:0 -> Assessment Handbook, Section 4 (synthetic teaching text). Every assignment in the cours...
+- window 40, overlap 0 | How can I recover my login access? (test)
+    not in top 3; top-1 = password:0 -> IT Help Desk Guide: Accounts and Passwords (synthetic teaching text). The university po...
+- window 40, overlap 0 | What proof is needed when I was ill? (test)
+    not in top 3; top-1 = contractor:4 -> contractor who ends the contract has to return it within seven days. Some older notices...
+- window 40, overlap 10 | What do I do for blank printer pages? (test)
+    first relevant at rank 2; top-1 = printer:1 -> design lab, which have their own sheets. Before opening any panel, switch the printer o...
+- window 40, overlap 10 | How can I recover my login access? (test)
+    first relevant at rank 2; top-1 = password:0 -> IT Help Desk Guide: Accounts and Passwords (synthetic teaching text). The university po...
+- window 40, overlap 10 | What proof is needed when I was ill? (test)
+    first relevant at rank 3; top-1 = contractor:6 -> employee rules, but those notices were replaced when the contractor policy was written.
+- sentence-aware, budget 40 | Where do I upload assignments? (dev)
+    first relevant at rank 2; top-1 = contractor:2 -> Employee rules do not apply to contractors.
+- sentence-aware, budget 40 | How can I recover my login access? (test)
+    first relevant at rank 2; top-1 = password:2 -> The link is on the login page under the password box and it sends a one-time code to th...
+- sentence-aware, budget 40 | What proof is needed when I was ill? (test)
+    not in top 3; top-1 = printer:5 -> A blank page from a scanner is a different problem and usually means the document was p...
+(9 answerable queries did not have a relevant chunk at rank 1 in the TF-IDF configurations)
+
+Unanswerable queries still return text (sentence-aware, TF-IDF):
+- What are tomorrow's flight prices? -> printer:6 (score 0.212): Paper jams, streaks and error codes are explained on the next sheet...
+- Who won the football match? -> assignment:3 (score 0.317): Students who face a problem with the portal should take a screensho...
+
+Orphan chunk created by the long-sentence fallback: ["password:5 = 'call.'"]
+
+======================================================================
+7. CHATBOT TRANSCRIPTS
+======================================================================
+FAQ chatbot (TF-IDF), exact answers only for canonical questions:
+You: How do I reset my password?
+Bot: Use the recovery link on the login page. [source: it_help.txt]
+You: How many books can I borrow from the library?
+Bot: Undergraduate students can borrow up to five books for fourteen days. [source: library_rules.txt]
+You: password recovery
+Bot: Possible matches; choose or rephrase your question:
+   How do I reset my password? (similarity 0.461)
+   Where do I submit my assignment? (similarity 0.000)
+   Can illness justify a late submission? (similarity 0.000)
+You: wifi connect
+Bot: Possible matches; choose or rephrase your question:
+   How do I connect to the campus wifi? (similarity 0.349)
+   How do I reset my password? (similarity 0.000)
+   Where do I submit my assignment? (similarity 0.000)
+You: 
+Bot: Please enter a question.
+You: volcano geology
+Bot: No matching FAQ. Please contact the help desk.
+
+Document evidence chatbot (window 40, overlap 10, TF-IDF):
+You: Can contractors work remotely?
+Bot: Candidate evidence; relevance must be checked:
+   1. contractor:2 score=0.388 characters 363-595
+   2. contractor:1 score=0.349 characters 193-419
+   3. contractor:0 score=0.230 characters 0-257
+You (choice): '1'
+Bot: Retrieved passage: a time. Contractors can work remotely only if the signed contract permits it. Employee rules do not apply to contractors. A contractor whose contract is silent on the subject should ask the project owner to add a written clause, and
+Bot: Source: contractor, characters 363-595
+You: Who won the football match?
+Bot: Candidate evidence; relevance must be checked:
+   1. contractor:5 score=0.233 characters 897-1142
+   2. assignment:2 score=0.230 characters 416-653
+   3. password:2 score=0.192 characters 356-590
+You (choice): ''
+Bot: No answer selected. Rephrase or contact a human.
+You: volcano geology
+Bot: No candidate evidence; rephrase or contact a human.
+You: 
+Bot: No candidate evidence; rephrase or contact a human.
+You: How can I recover my login access?
+Bot: Candidate evidence; relevance must be checked:
+   1. password:0 score=0.139 characters 0-238
+   2. password:1 score=0.123 characters 189-401
+   3. contractor:2 score=0.111 characters 363-595
+You (choice): '1'
+Bot: Retrieved passage: IT Help Desk Guide: Accounts and Passwords (synthetic teaching text). The university portal, the library system and the campus wireless network all use the same student login, so a problem with one of them usually means a problem with the
+Bot: Source: password, characters 0-238
+
+======================================================================
+8. SUMMARY
+======================================================================
+Selected on dev (TF-IDF): window 40, overlap 10
+Hit@3 and MRR@3 are computed on 4 queries per split, so one query changes Hit@3 by 0.25;
+the results show tendencies only. Retrieved text is evidence to inspect, not a verified answer.
